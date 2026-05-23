@@ -314,10 +314,11 @@ window.IMG_RIGHT.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABAAAAAQACA
       return;
     }
 
-    if (ball.x > NET_X) {
-      // 공이 AI 진영 → 착지 예측점으로 이동 (풀 스피드)
-      const targetX = predictLandingX(ball);
+    // 공 위치와 무관하게 항상 착지 예측 수행
+    const targetX = predictLandingX(ball);
 
+    if (ball.x > NET_X) {
+      // 공이 AI 진영 → 착지 예측점으로 이동
       if (Math.abs(ai.x - targetX) > 4) {
         ai.vx = ai.x < targetX ? PLAYER_SPEED : -PLAYER_SPEED;
       } else {
@@ -332,10 +333,13 @@ window.IMG_RIGHT.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABAAAAAQACA
         ai.onGround = false;
       }
     } else {
-      // 공이 상대(좌측) 진영 → 대기 위치 (풀 스피드)
-      const waitX = (3 * W) / 4;
-      if (Math.abs(ai.x - waitX) > 4) {
-        ai.vx = ai.x < waitX ? PLAYER_SPEED : -PLAYER_SPEED;
+      // 공이 상대(좌측) 진영 → 착지 예측점이 AI 쪽이면 미리 이동, 아니면 기본 대기
+      const prepX = targetX > NET_X
+        ? targetX                // 궤적이 AI 쪽으로 올 경우 미리 위치 잡기
+        : (3 * W) / 4;           // 공이 상대 진영에 떨어질 경우 대기
+
+      if (Math.abs(ai.x - prepX) > 4) {
+        ai.vx = ai.x < prepX ? PLAYER_SPEED : -PLAYER_SPEED;
       } else {
         ai.vx = 0;
       }
