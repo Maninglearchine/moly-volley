@@ -858,6 +858,27 @@ window.IMG_RIGHT.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABAAAAAQACA
     ctx.fillStyle = '#ffffff';
     ctx.fillText('몰리 발리볼', cx, CANVAS_H / 2 - 80);
 
+    // 타이틀 양 옆 회전 공
+    var titleHalfW  = ctx.measureText('몰리 발리볼').width / 2;
+    var iBallSize   = 68;
+    var iBallY      = CANVAS_H / 2 - 80;
+    var iBallOffX   = titleHalfW + iBallSize / 2 + 18;
+    var iAngle      = (Date.now() / 500) % (Math.PI * 2);
+    ctx.shadowBlur  = 0;
+    if (isImgReady(window.IMG_BALL)) {
+      [-1, 1].forEach(function(side) {
+        ctx.save();
+        ctx.translate(cx + side * iBallOffX, iBallY);
+        ctx.rotate(iAngle * side);
+        ctx.beginPath();
+        ctx.arc(0, 0, iBallSize / 2, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.drawImage(window.IMG_BALL,
+          -iBallSize / 2, -iBallSize / 2, iBallSize, iBallSize);
+        ctx.restore();
+      });
+    }
+
     // 서브 타이틀
     ctx.shadowBlur = 0;
     ctx.font = '26px "Segoe UI", "Malgun Gothic", sans-serif';
