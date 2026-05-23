@@ -77,7 +77,10 @@ window.IMG_RIGHT.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABAAAAAQACA
   const H              = 304;
   const GRAVITY        = 0.38;
   const PLAYER_SPEED   = 4;
-  const JUMP_SPEED     = -13;
+  const JUMP_SPEED     = -13;   // AI / 최대 점프 속도
+  const JUMP_SPEED_MIN = -5;    // 짧게 탭했을 때 최소 점프
+  const JUMP_HOLD_BOOST  = 0.8; // 키 유지 중 프레임당 추가 속도
+  const JUMP_HOLD_FRAMES = 10;  // 최대 부스트 지속 프레임 (10f × 0.8 = -8 → 합계 -13)
   const BALL_RADIUS    = 20;
   const PLAYER_HITBOX_R = 32;
   const GROUND_Y       = 256;
@@ -155,10 +158,12 @@ window.IMG_RIGHT.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABAAAAAQACA
       y:        GROUND_Y,
       vx:       0,
       vy:       0,
-      onGround: true,
-      isLeft:   isLeft,
-      score:    0,
-      state:    'idle',
+      onGround:   true,
+      isLeft:     isLeft,
+      score:      0,
+      state:      'idle',
+      jumpHeld:   false,
+      jumpFrames: 0,
     };
   }
 
@@ -234,14 +239,32 @@ window.IMG_RIGHT.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABAAAAAQACA
    */
   function applyInput(player, keys) {
     // 수평 이동
-    if (keys.left)  player.vx = -PLAYER_SPEED;
+    if (keys.left)       player.vx = -PLAYER_SPEED;
     else if (keys.right) player.vx =  PLAYER_SPEED;
-    else             player.vx = 0;
+    else                 player.vx = 0;
 
-    // 점프
-    if ((keys.up || keys.z || keys.space) && player.onGround) {
-      player.vy = JUMP_SPEED;
-      player.onGround = false;
+    const jumpPressed = keys.up || keys.z || keys.space;
+
+    // 점프 시작 (지면에서 키를 처음 누른 순간)
+    if (jumpPressed && player.onGround) {
+      player.vy         = JUMP_SPEED_MIN;
+      player.onGround   = false;
+      player.jumpHeld   = true;
+      player.jumpFrames = 0;
+    }
+
+    // 키 유지 중 점프 부스트 (상승 중일 때만)
+    if (jumpPressed && player.jumpHeld && player.vy < 0) {
+      if (player.jumpFrames < JUMP_HOLD_FRAMES) {
+        player.vy -= JUMP_HOLD_BOOST;
+        if (player.vy < JUMP_SPEED) player.vy = JUMP_SPEED; // 최대 속도 상한
+      }
+      player.jumpFrames++;
+    }
+
+    // 키를 떼면 부스트 중단
+    if (!jumpPressed) {
+      player.jumpHeld = false;
     }
   }
 
@@ -369,9 +392,11 @@ window.IMG_RIGHT.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABAAAAAQACA
 
     // 착지
     if (player.y >= GROUND_Y) {
-      player.y       = GROUND_Y;
-      player.vy      = 0;
-      player.onGround = true;
+      player.y          = GROUND_Y;
+      player.vy         = 0;
+      player.onGround   = true;
+      player.jumpHeld   = false;
+      player.jumpFrames = 0;
     } else {
       player.onGround = false;
     }
