@@ -1,0 +1,19 @@
+# Claude / IDE
+.claude/
+.playwright-mcp/
+
+# 스크린샷 (루트)
+game_test.png
+game_playing.png
+game_final.png
+game_intro_final.png
+game_updated.png
+
+# base64 텍스트 캐시 (대용량)
+img/*.txt
+
+# Claude 에이전트 내부 파일
+agents_skills_overview.txt
+agents/
+commands/
+skills/
