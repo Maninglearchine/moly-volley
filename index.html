@@ -224,14 +224,15 @@ window.IMG_RIGHT.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABAAAAAQACA
       if (newVx > -3) newVx = -3;
     }
 
-    // 파워히트 발동
+    // 파워히트 발동 (다음 타격 시 상태 초기화)
     if (player.powerHit) {
       newVx *= 1.7;
       newVy  = Math.min(newVy * 1.4, -10);
-      player.powerHit  = false;
-      ball.powerHit    = true;
-      ball.powerHitTimer = 180;
+      player.powerHit = false;
+      ball.powerHit   = true;   // 시각 효과 ON (다음 타격/착지까지 유지)
       playPowerHitSound();
+    } else {
+      ball.powerHit = false;    // 일반 타격 → 파워히트 효과 해제
     }
 
     const maxSpd = ball.powerHit ? 20 : 12;
@@ -280,9 +281,11 @@ window.IMG_RIGHT.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABAAAAAQACA
       player.jumpHeld = false;
     }
 
-    // 파워히트 암(arm): 공중에서 Z 또는 Space(부스트 중 아닐 때) 첫 프레임에만 발동
-    const powerKeyNow = !player.onGround &&
-                        (keys.z || (keys.space && !player.jumpHeld));
+    // 파워히트 암(arm): Z(공중 즉시) 또는 Space(부스트 소진 후)
+    // Space는 점프 부스트(10프레임) 이후부터 파워히트로 전환
+    const spaceCanHit = keys.space &&
+                        (!player.jumpHeld || player.jumpFrames >= JUMP_HOLD_FRAMES);
+    const powerKeyNow = !player.onGround && (keys.z || spaceCanHit);
     if (powerKeyNow && !player.prevPowerKey) {
       player.powerHit = true;
     }
@@ -518,11 +521,10 @@ window.IMG_RIGHT.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABAAAAAQACA
 
     // 4. 득점 판정
     if (landed) {
+      ball.powerHit = false; // 착지 시 파워히트 시각 효과 해제
       if (ball.x < NET_X) {
-        // 좌측 바닥 → p2 득점
         return 'p2score';
       } else {
-        // 우측 바닥 → p1 득점
         return 'p1score';
       }
     }
@@ -724,7 +726,7 @@ function playPowerHitSound() {
     const groundY = gl.GROUND_Y * SCALE;
     const netTopY = gl.NET_TOP_Y !== undefined ? gl.NET_TOP_Y * SCALE : groundY - 120;
     const netH    = groundY - netTopY;
-    const halfW   = 30;   // 시각적 폭 (물리는 NET_HALF_W=4 유지)
+    const halfW   = 20;   // 시각적 폭 (물리는 NET_HALF_W=4 유지)
     const poleW   = 8;
     const meshStep = 13;  // 메시 간격
 
@@ -848,36 +850,52 @@ function playPowerHitSound() {
     const cx = ball.x * SCALE;
     const cy = ball.y * SCALE;
 
-    // 파워히트 타이머 카운트다운
-    if (ball.powerHit) {
-      ball.powerHitTimer = (ball.powerHitTimer || 0) - 1;
-      if (ball.powerHitTimer <= 0) {
-        ball.powerHit = false;
-        ball.powerHitTimer = 0;
-      }
-    }
-
     // 회전 속도: 파워히트 중 2배
     if (typeof ball.rotation !== 'number') ball.rotation = 0;
     const rotMult = ball.powerHit ? 0.08 : 0.04;
     ball.rotation += (ball.vx || 0) * rotMult;
 
-    // 파워히트 붉은 테두리 (공 뒤에 그림)
+    // 파워히트 지그재그(뾰족 별) 하이라이트 — 공 뒤에 먼저 그림
     if (ball.powerHit) {
-      const pulse = 0.55 + 0.45 * Math.sin(Date.now() / 70);
+      const spikes   = 12;
+      const innerR   = drawSize / 2 + 3;
+      const outerR   = drawSize / 2 + 14;
+      const pulse    = 0.6 + 0.4 * Math.sin(Date.now() / 70);
+      const spinAngle = (Date.now() / 180) % (Math.PI * 2);
+
       ctx.save();
       ctx.translate(cx, cy);
+      ctx.rotate(spinAngle);
+
+      // 외곽 빛 채우기
       ctx.beginPath();
-      ctx.arc(0, 0, drawSize / 2 + 6, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(255,50,0,' + pulse + ')';
-      ctx.lineWidth   = 6;
+      for (var si = 0; si < spikes * 2; si++) {
+        var a = (si / (spikes * 2)) * Math.PI * 2;
+        var r = si % 2 === 0 ? outerR : innerR;
+        if (si === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+        else          ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+      }
+      ctx.closePath();
+      ctx.fillStyle   = 'rgba(255,80,0,' + (pulse * 0.22) + ')';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,40,0,' + pulse + ')';
+      ctx.lineWidth   = 2.5;
       ctx.stroke();
-      // 내부 주황 빛
+
+      // 내부 작은 별 (강조)
+      ctx.rotate(Math.PI / spikes);
       ctx.beginPath();
-      ctx.arc(0, 0, drawSize / 2 + 2, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(255,160,0,' + (pulse * 0.6) + ')';
-      ctx.lineWidth   = 3;
+      for (var si2 = 0; si2 < spikes * 2; si2++) {
+        var a2 = (si2 / (spikes * 2)) * Math.PI * 2;
+        var r2 = si2 % 2 === 0 ? innerR - 2 : innerR - 8;
+        if (si2 === 0) ctx.moveTo(Math.cos(a2) * r2, Math.sin(a2) * r2);
+        else           ctx.lineTo(Math.cos(a2) * r2, Math.sin(a2) * r2);
+      }
+      ctx.closePath();
+      ctx.strokeStyle = 'rgba(255,180,0,' + (pulse * 0.7) + ')';
+      ctx.lineWidth   = 1.5;
       ctx.stroke();
+
       ctx.restore();
     }
 
