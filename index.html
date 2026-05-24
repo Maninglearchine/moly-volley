@@ -162,8 +162,10 @@ window.IMG_RIGHT.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABAAAAAQACA
       isLeft:     isLeft,
       score:      0,
       state:      'idle',
-      jumpHeld:   false,
-      jumpFrames: 0,
+      jumpHeld:     false,
+      jumpFrames:   0,
+      powerHit:     false,
+      prevPowerKey: false,
     };
   }
 
@@ -222,8 +224,18 @@ window.IMG_RIGHT.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABAAAAAQACA
       if (newVx > -3) newVx = -3;
     }
 
-    // 속도 상한 22
-    const clamped = clampSpeed(newVx, newVy, 12);
+    // 파워히트 발동
+    if (player.powerHit) {
+      newVx *= 1.7;
+      newVy  = Math.min(newVy * 1.4, -10);
+      player.powerHit  = false;
+      ball.powerHit    = true;
+      ball.powerHitTimer = 180;
+      playPowerHitSound();
+    }
+
+    const maxSpd = ball.powerHit ? 20 : 12;
+    const clamped = clampSpeed(newVx, newVy, maxSpd);
     ball.vx = clamped.vx;
     ball.vy = clamped.vy;
 
@@ -243,7 +255,8 @@ window.IMG_RIGHT.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABAAAAAQACA
     else if (keys.right) player.vx =  PLAYER_SPEED;
     else                 player.vx = 0;
 
-    const jumpPressed = keys.up || keys.z || keys.space;
+    // 점프: Up/Space (Z는 파워히트 전용이므로 점프에서 제외)
+    const jumpPressed = keys.up || keys.space;
 
     // 점프 시작 (지면에서 키를 처음 누른 순간)
     if (jumpPressed && player.onGround) {
@@ -257,7 +270,7 @@ window.IMG_RIGHT.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABAAAAAQACA
     if (jumpPressed && player.jumpHeld && player.vy < 0) {
       if (player.jumpFrames < JUMP_HOLD_FRAMES) {
         player.vy -= JUMP_HOLD_BOOST;
-        if (player.vy < JUMP_SPEED) player.vy = JUMP_SPEED; // 최대 속도 상한
+        if (player.vy < JUMP_SPEED) player.vy = JUMP_SPEED;
       }
       player.jumpFrames++;
     }
@@ -266,6 +279,14 @@ window.IMG_RIGHT.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABAAAAAQACA
     if (!jumpPressed) {
       player.jumpHeld = false;
     }
+
+    // 파워히트 암(arm): 공중에서 Z 또는 Space(부스트 중 아닐 때) 첫 프레임에만 발동
+    const powerKeyNow = !player.onGround &&
+                        (keys.z || (keys.space && !player.jumpHeld));
+    if (powerKeyNow && !player.prevPowerKey) {
+      player.powerHit = true;
+    }
+    player.prevPowerKey = powerKeyNow;
   }
 
   // ─── AI 로직 ──────────────────────────────────────────────────────────────────
@@ -552,6 +573,38 @@ window.IMG_RIGHT.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABAAAAAQACA
    game_render.js  (버그 수정 적용)
    ============================================================ */
 /**
+ * 파워히트 파열음 (Web Audio API 즉석 생성)
+ */
+function playPowerHitSound() {
+  try {
+    var ac = new (window.AudioContext || window.webkitAudioContext)();
+    var t  = ac.currentTime;
+
+    // 저음 펀치 (붐 느낌)
+    var osc1  = ac.createOscillator();
+    var gain1 = ac.createGain();
+    osc1.type = 'square';
+    osc1.frequency.setValueAtTime(220, t);
+    osc1.frequency.exponentialRampToValueAtTime(40, t + 0.14);
+    gain1.gain.setValueAtTime(0.55, t);
+    gain1.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+    osc1.connect(gain1); gain1.connect(ac.destination);
+    osc1.start(t); osc1.stop(t + 0.25);
+
+    // 고음 찰싹
+    var osc2  = ac.createOscillator();
+    var gain2 = ac.createGain();
+    osc2.type = 'sawtooth';
+    osc2.frequency.setValueAtTime(900, t);
+    osc2.frequency.exponentialRampToValueAtTime(180, t + 0.09);
+    gain2.gain.setValueAtTime(0.28, t);
+    gain2.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+    osc2.connect(gain2); gain2.connect(ac.destination);
+    osc2.start(t); osc2.stop(t + 0.13);
+  } catch (e) {}
+}
+
+/**
  * game_render.js
  * 몰리 발리볼 — Canvas 렌더링 & 게임 루프
  *
@@ -670,33 +723,78 @@ window.IMG_RIGHT.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABAAAAAQACA
     const netX    = gl.NET_X * SCALE;
     const groundY = gl.GROUND_Y * SCALE;
     const netTopY = gl.NET_TOP_Y !== undefined ? gl.NET_TOP_Y * SCALE : groundY - 120;
+    const netH    = groundY - netTopY;
+    const halfW   = 30;   // 시각적 폭 (물리는 NET_HALF_W=4 유지)
     const poleW   = 8;
+    const meshStep = 13;  // 메시 간격
 
     ctx.save();
 
-    // 네트 기둥 (짙은 회색)
-    ctx.fillStyle = '#444444';
-    ctx.fillRect(netX - poleW / 2, netTopY, poleW, groundY - netTopY);
+    // ── 메시 배경 (반투명 어두운 영역) ──────────────────────────
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    ctx.fillRect(netX - halfW, netTopY, halfW * 2, netH);
 
-    // 네트 줄 (흰색 수평선, 10px 간격)
-    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-    ctx.lineWidth = 1.5;
-    for (let y = netTopY; y <= groundY; y += 10) {
+    // ── 수평 메시 선 ───────────────────────────────────────────
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = 1.2;
+    for (let y = netTopY + meshStep; y < groundY; y += meshStep) {
       ctx.beginPath();
-      ctx.moveTo(netX - 28, y);
-      ctx.lineTo(netX + 28, y);
+      ctx.moveTo(netX - halfW, y);
+      ctx.lineTo(netX + halfW, y);
       ctx.stroke();
     }
 
-    // 네트 세로 줄 (양 끝)
-    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
-    ctx.lineWidth = 2;
+    // ── 수직 메시 선 ───────────────────────────────────────────
+    for (let x = netX - halfW + meshStep; x < netX + halfW; x += meshStep) {
+      ctx.beginPath();
+      ctx.moveTo(x, netTopY);
+      ctx.lineTo(x, groundY);
+      ctx.stroke();
+    }
+
+    // ── 양쪽 사이드 테이프 (흰색 세로 밴드) ──────────────────────
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.fillRect(netX - halfW - 1, netTopY - 4, 6, netH + 4);
+    ctx.fillRect(netX + halfW - 5,  netTopY - 4, 6, netH + 4);
+
+    // ── 상단 흰색 밴드 ─────────────────────────────────────────
+    const bandH = 11;
+    ctx.fillStyle = 'rgba(255,255,255,0.97)';
+    ctx.fillRect(netX - halfW - 1, netTopY - bandH, halfW * 2 + 2, bandH);
+
+    // 상단 밴드 위 파란 선
+    ctx.fillStyle = 'rgba(80,130,255,0.9)';
+    ctx.fillRect(netX - halfW - 1, netTopY - bandH - 3, halfW * 2 + 2, 3);
+
+    // ── 측면 폴 ──────────────────────────────────────────────
+    // 왼쪽 폴
+    var gL = ctx.createLinearGradient(netX - halfW - poleW, 0, netX - halfW + 2, 0);
+    gL.addColorStop(0, '#555');
+    gL.addColorStop(0.35, '#e0e0e0');
+    gL.addColorStop(1, '#666');
+    ctx.fillStyle = gL;
     ctx.beginPath();
-    ctx.moveTo(netX - 28, netTopY);
-    ctx.lineTo(netX - 28, groundY);
-    ctx.moveTo(netX + 28, netTopY);
-    ctx.lineTo(netX + 28, groundY);
-    ctx.stroke();
+    ctx.roundRect(netX - halfW - poleW, netTopY - bandH - 8, poleW, netH + bandH + 12, [3]);
+    ctx.fill();
+
+    // 오른쪽 폴
+    var gR = ctx.createLinearGradient(netX + halfW, 0, netX + halfW + poleW, 0);
+    gR.addColorStop(0, '#555');
+    gR.addColorStop(0.65, '#e0e0e0');
+    gR.addColorStop(1, '#666');
+    ctx.fillStyle = gR;
+    ctx.beginPath();
+    ctx.roundRect(netX + halfW, netTopY - bandH - 8, poleW, netH + bandH + 12, [3]);
+    ctx.fill();
+
+    // ── 폴 하단 앵커 ─────────────────────────────────────────
+    ctx.fillStyle = 'rgba(80,80,80,0.8)';
+    ctx.beginPath();
+    ctx.roundRect(netX - halfW - poleW - 3, groundY - 10, poleW + 6, 10, [2]);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.roundRect(netX + halfW - 3, groundY - 10, poleW + 6, 10, [2]);
+    ctx.fill();
 
     ctx.restore();
   }
@@ -750,16 +848,44 @@ window.IMG_RIGHT.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABAAAAAQACA
     const cx = ball.x * SCALE;
     const cy = ball.y * SCALE;
 
-    // 매 프레임 회전 누적
+    // 파워히트 타이머 카운트다운
+    if (ball.powerHit) {
+      ball.powerHitTimer = (ball.powerHitTimer || 0) - 1;
+      if (ball.powerHitTimer <= 0) {
+        ball.powerHit = false;
+        ball.powerHitTimer = 0;
+      }
+    }
+
+    // 회전 속도: 파워히트 중 2배
     if (typeof ball.rotation !== 'number') ball.rotation = 0;
-    ball.rotation += (ball.vx || 0) * 0.04;
+    const rotMult = ball.powerHit ? 0.08 : 0.04;
+    ball.rotation += (ball.vx || 0) * rotMult;
+
+    // 파워히트 붉은 테두리 (공 뒤에 그림)
+    if (ball.powerHit) {
+      const pulse = 0.55 + 0.45 * Math.sin(Date.now() / 70);
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.beginPath();
+      ctx.arc(0, 0, drawSize / 2 + 6, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255,50,0,' + pulse + ')';
+      ctx.lineWidth   = 6;
+      ctx.stroke();
+      // 내부 주황 빛
+      ctx.beginPath();
+      ctx.arc(0, 0, drawSize / 2 + 2, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255,160,0,' + (pulse * 0.6) + ')';
+      ctx.lineWidth   = 3;
+      ctx.stroke();
+      ctx.restore();
+    }
 
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(ball.rotation);
 
     if (isImgReady(window.IMG_BALL)) {
-      // 원형 클리핑으로 흰 배경 숨기기
       ctx.beginPath();
       ctx.arc(0, 0, drawSize / 2, 0, Math.PI * 2);
       ctx.clip();
@@ -769,12 +895,11 @@ window.IMG_RIGHT.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABAAAAAQACA
         drawSize, drawSize
       );
     } else {
-      // 이미지 미로드 시 흰색 원으로 대체
       ctx.beginPath();
       ctx.arc(0, 0, drawSize / 2, 0, Math.PI * 2);
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = ball.powerHit ? '#ff8844' : '#ffffff';
       ctx.fill();
-      ctx.strokeStyle = '#cccccc';
+      ctx.strokeStyle = ball.powerHit ? '#ff3300' : '#cccccc';
       ctx.lineWidth = 2;
       ctx.stroke();
     }
