@@ -166,6 +166,7 @@ window.IMG_RIGHT.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABAAAAAQACA
       jumpFrames:   0,
       powerHit:     false,
       prevPowerKey: false,
+      inputDirX:    0,
     };
   }
 
@@ -226,13 +227,21 @@ window.IMG_RIGHT.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABAAAAAQACA
 
     // 파워히트 발동 (다음 타격 시 상태 초기화)
     if (player.powerHit) {
-      newVx *= 1.7;
-      newVy  = Math.min(newVy * 1.4, -10);
+      const dir = player.inputDirX || 0; // 타격 순간 방향키 상태
+      if (dir !== 0) {
+        // 방향키 지정: 해당 방향으로 강한 속도 오버라이드
+        newVx = dir * 15;
+        if (newVy > -9) newVy = -9;
+      } else {
+        // 방향키 없음: 현재 궤적 배율 증폭
+        newVx *= 1.7;
+        newVy  = Math.min(newVy * 1.4, -10);
+      }
       player.powerHit = false;
-      ball.powerHit   = true;   // 시각 효과 ON (다음 타격/착지까지 유지)
+      ball.powerHit   = true;
       playPowerHitSound();
     } else {
-      ball.powerHit = false;    // 일반 타격 → 파워히트 효과 해제
+      ball.powerHit = false;
     }
 
     const maxSpd = ball.powerHit ? 20 : 12;
@@ -251,10 +260,10 @@ window.IMG_RIGHT.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABAAAAAQACA
    * @param {{ left: boolean, right: boolean, up: boolean, z: boolean }} keys
    */
   function applyInput(player, keys) {
-    // 수평 이동
-    if (keys.left)       player.vx = -PLAYER_SPEED;
-    else if (keys.right) player.vx =  PLAYER_SPEED;
-    else                 player.vx = 0;
+    // 수평 이동 + 파워히트 방향 저장 (매 프레임)
+    if (keys.left)       { player.vx = -PLAYER_SPEED; player.inputDirX = -1; }
+    else if (keys.right) { player.vx =  PLAYER_SPEED; player.inputDirX =  1; }
+    else                 { player.vx = 0;              player.inputDirX =  0; }
 
     // 점프: Up/Space (Z는 파워히트 전용이므로 점프에서 제외)
     const jumpPressed = keys.up || keys.space;
@@ -1031,7 +1040,7 @@ function playPowerHitSound() {
     // 조작법
     ctx.font = '22px "Segoe UI", "Malgun Gothic", sans-serif';
     ctx.fillStyle = 'rgba(200,230,255,0.85)';
-    ctx.fillText('← → 이동  |  ↑ / Space 점프  |  Z 파워히트', cx, CANVAS_H / 2 + 50);
+    ctx.fillText('← → 이동  |  ↑ / Space 점프  |  Z 파워히트  |  파워히트+← → 방향조준', cx, CANVAS_H / 2 + 50);
 
     // 시작 안내 (깜빡임 효과)
     const blink = Math.floor(Date.now() / 500) % 2 === 0;
