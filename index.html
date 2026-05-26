@@ -688,7 +688,6 @@ function playPowerHitSound() {
   const keys = { left: false, right: false, up: false, down: false, z: false, space: false };
 
   document.addEventListener('keydown', function (e) {
-    if (window.bgmStart) window.bgmStart();
     if (e.code === 'ArrowLeft')  keys.left  = true;
     if (e.code === 'ArrowRight') keys.right = true;
     if (e.code === 'ArrowUp')    keys.up    = true;
@@ -1544,8 +1543,27 @@ function removeWhiteBg(img, threshold) {
         var midi = parseMidi(b64ToU8(BGM_B64));
         tl = buildTimeline(midi);
       }
-      if (ac.state === 'suspended') ac.resume();
-      scheduleIteration(ac.currentTime + 0.15);
+
+      var didSchedule = false;
+      function doSchedule() {
+        if (didSchedule) return;
+        didSchedule = true;
+        scheduleIteration(ac.currentTime + 0.1);
+      }
+
+      if (ac.state === 'running') {
+        doSchedule();
+      } else {
+        // 브라우저가 허용하면 즉시 재생
+        ac.resume().then(doSchedule).catch(function(){});
+        // 허용 안 될 경우 첫 상호작용(키/클릭/터치) 시 재생
+        var EVS = ['keydown', 'mousedown', 'touchstart', 'click'];
+        function onFirst() {
+          EVS.forEach(function(e) { document.removeEventListener(e, onFirst, true); });
+          ac.resume().then(doSchedule).catch(function(){});
+        }
+        EVS.forEach(function(e) { document.addEventListener(e, onFirst, { once: true, capture: true }); });
+      }
     } catch(e) { running = false; console.warn('BGM:', e); }
   };
 
@@ -1554,6 +1572,9 @@ function removeWhiteBg(img, threshold) {
     clearTimeout(loopTimer);
     if (ac) { try { ac.close(); } catch(e){} ac = null; }
   };
+
+  // 페이지 로드 시 자동 시작 시도
+  window.bgmStart();
 })();
 </script>
 
