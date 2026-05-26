@@ -688,6 +688,7 @@ function playPowerHitSound() {
   const keys = { left: false, right: false, up: false, down: false, z: false, space: false };
 
   document.addEventListener('keydown', function (e) {
+    if (window.bgmStart) window.bgmStart();
     if (e.code === 'ArrowLeft')  keys.left  = true;
     if (e.code === 'ArrowRight') keys.right = true;
     if (e.code === 'ArrowUp')    keys.up    = true;
@@ -1182,7 +1183,6 @@ function playPowerHitSound() {
     winner      = null;
     frameCount  = 0;
     gameState   = 'playing';
-    if (window.bgmStart) window.bgmStart();
   }
 
   function startNewRound(fromLeft) {
